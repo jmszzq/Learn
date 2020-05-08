@@ -1,22 +1,34 @@
 package com.two.xml;
 
-import com.two.jdbc.BasicDataSource;
 import com.two.jdbc.Configuration;
+import com.two.jdbc.MappedStatement;
+import com.two.sqlNode.*;
+import com.two.sqlSource.DynamicSqlSource;
+import com.two.sqlSource.RawSqlSource;
+import com.two.sqlSource.SqlSource;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.dbcp.BasicDataSource;
 import org.dom4j.Document;
 import org.dom4j.Element;
+import org.dom4j.Node;
+import org.dom4j.Text;
 import org.dom4j.io.SAXReader;
 
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
 @Slf4j
+@Data
 public class ReadMybatisConfig {
 
     private Configuration configuration = new Configuration();
 
-    private void readMybatisXml(){
+    private boolean isDynamic = false;
+
+    public void readMybatisXml(){
         InputStream inputStream = getResourceAsStream("mybatis.xml");
         Document document = createDocument(inputStream);
         parserConfiguration(document.getRootElement());
@@ -81,6 +93,63 @@ public class ReadMybatisConfig {
 
         SqlSource sqlSource = createSqlSource(selectElement);
 
+        // TODO 构建者模式优化
+        MappedStatement mappedStatement = new MappedStatement(statementId, parameterClass, resultClass, statementType,
+                sqlSource);
+        configuration.addMappedStatement(statementId, mappedStatement);
+
+    }
+
+    private SqlSource createSqlSource(Element selectElement) {
+        return parseScriptNode(selectElement);
+    }
+
+    private SqlSource parseScriptNode(Element selectElement) {
+
+        MixedSqlNode rootSqlNode = parseDynamicTags(selectElement);
+        SqlSource sqlSource = null;
+        if (isDynamic) {
+            sqlSource = new DynamicSqlSource(rootSqlNode);
+        } else {
+            sqlSource = new RawSqlSource(rootSqlNode);
+        }
+        return sqlSource;
+    }
+
+    private MixedSqlNode parseDynamicTags(Element selectElement) {
+
+        List<SqlNode> sqlNodes = new ArrayList<>();
+        int nodeCount = selectElement.nodeCount();
+        for (int i = 0; i < nodeCount; i++) {
+            Node node = selectElement.node(i);
+            if (node instanceof Text) {
+                String sqlText = node.getText();
+                if (sqlText == null || "".equals(sqlText)) {
+                    continue;
+                }
+                TextSqlNode textSqlNode = new TextSqlNode(sqlText);
+                if (textSqlNode.isDynamic()) {
+                    sqlNodes.add(textSqlNode);
+                    isDynamic = true;
+                } else {
+                    sqlNodes.add(new StaticTextSqlNode(sqlText));
+                }
+            } else if (node instanceof Element) {
+                Element element = (Element) node;
+                String elementName = element.getName();
+                if (elementName.equals("if")) {
+                    String test = element.attributeValue("test");
+                    MixedSqlNode mixedSqlNode = parseDynamicTags(element);
+
+                    IfSqlNode ifSqlNode = new IfSqlNode(test, mixedSqlNode);
+                    sqlNodes.add(ifSqlNode);
+                } else if (elementName.equals("where")) {
+                    // todo
+                }
+                isDynamic = true;
+            }
+        }
+        return new MixedSqlNode(sqlNodes);
     }
 
     private Class<?> resolveType(String parameterType) {
@@ -101,11 +170,11 @@ public class ReadMybatisConfig {
             if(defaultId.equals(id)){
                 Properties properties = parseDataSource(element);
                 BasicDataSource basicDataSource = new BasicDataSource();
-                basicDataSource.setDriver(properties.getProperty("driver"));
+                basicDataSource.setDriverClassName(properties.getProperty("driver"));
                 basicDataSource.setUrl(properties.getProperty("url"));
-                basicDataSource.setName(properties.getProperty("name"));
+                basicDataSource.setUsername(properties.getProperty("name"));
                 basicDataSource.setPassword(properties.getProperty("password"));
-                configuration.setBasicDataSource(basicDataSource);
+                configuration.setDataSource(basicDataSource);
             }
         }
     }

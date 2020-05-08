@@ -4,13 +4,11 @@
             parameterType="com.one.entity.User"
             resultType="com.one.entity.User" statementType="prepared">
 
-        SELECT * FROM user WHERE id = #{id} AND username like '%${username}'
-        <!-- SELECT * FROM user WHERE id = #{id} AND username like '%${username}' -->
+        SELECT * FROM user WHERE id = #{id} AND name like '%${name}'
 
-        <!-- and sex = #{sex} AND username like '%${username}' -->
-        <if test="username != null and username !='' ">
-            AND username like '%${username}'
-            <if test="username != null and username !=''">
+        <if test="name != null and name !='' ">
+            AND name like '%${name}'
+            <if test="name != null and name !=''">
                 AND 1=1
             </if>
         </if>
